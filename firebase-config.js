@@ -1,1 +1,0 @@
-async function saveToFirebase(data){console.log('Saving:',data);}
