@@ -1,5 +1,23 @@
-document.getElementById('booking-form').addEventListener('submit',function(e){
- e.preventDefault();
- document.getElementById('success-message').classList.remove('hidden');
- setTimeout(()=>{document.getElementById('success-message').classList.add('hidden');},4000);
-});
+'use strict';
+// The frontend contains NO secrets. All Gemini and Resend requests go through Cloudflare.
+const API_URL = 'https://dhofarcare-api.sharooqalmashani1.workers.dev';
+let language = localStorage.getItem('dhofarcare_language') === 'ar' ? 'ar' : 'en';
+const translations = {
+  en:{sending:'Sending request...',sent:'Your request was sent to the administrator. Reference: ',failed:'Unable to send the request. Please retry. ',invalidPhone:'Please enter an Omani mobile number starting with 7 or 9 (8 digits).',past:'Please choose today or a future date.',asking:'AI is thinking...',chatError:'AI is unavailable right now. Please try again later.',send:'Send',request:'Send request'},
+  ar:{sending:'جارٍ إرسال الطلب...',sent:'تم إرسال طلبك إلى الإدارة. رقم الطلب: ',failed:'تعذر إرسال الطلب. حاولي مرة أخرى. ',invalidPhone:'أدخل رقم هاتف عُماني صحيحًا يبدأ بـ 7 أو 9 ويتكون من 8 أرقام.',past:'اختر تاريخ اليوم أو تاريخًا مستقبليًا.',asking:'المساعد يفكر...',chatError:'المساعد غير متاح حاليًا. يرجى المحاولة لاحقًا.',send:'إرسال',request:'إرسال الطلب'}
+};
+const $ = id => document.getElementById(id);
+function tr(key){return translations[language][key]}
+function setLanguage(lang){language=lang;localStorage.setItem('dhofarcare_language',lang);document.documentElement.lang=lang;document.documentElement.dir=lang==='ar'?'rtl':'ltr';$('langBtn').textContent=lang==='ar'?'English':'العربية';document.querySelectorAll('[data-en][data-ar]').forEach(el=>{el.textContent=el.dataset[lang]});document.querySelectorAll('[data-en-placeholder][data-ar-placeholder]').forEach(el=>{el.placeholder=lang==='ar'?el.dataset.arPlaceholder:el.dataset.enPlaceholder})}
+$('langBtn').addEventListener('click',()=>setLanguage(language==='ar'?'en':'ar'));setLanguage(language);$('year').textContent=new Date().getFullYear();
+const bookingForm=$('bookingForm'),bookingBtn=$('bookingSubmit'),bookingStatus=$('bookingStatus');
+$('bookingDate').min=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+document.querySelectorAll('.serviceBtn').forEach(btn=>btn.addEventListener('click',()=>{$('serviceSelect').value=btn.dataset.service;$('booking').scrollIntoView({behavior:'smooth'});$('serviceSelect').focus()}));
+function showBooking(message,error=false){bookingStatus.textContent=message;bookingStatus.className='status '+(error?'error':'success')}
+function makeId(){return 'DC-'+Date.now().toString(36).toUpperCase()+'-'+Math.random().toString(36).slice(2,6).toUpperCase()}
+bookingForm.addEventListener('submit',async e=>{e.preventDefault();const fields=new FormData(bookingForm),phone=String(fields.get('phone')||'').replace(/[\s-]/g,''),date=String(fields.get('date')||'');if(!/^(?:\+?968)?[79]\d{7}$/.test(phone)){showBooking(tr('invalidPhone'),true);return}if(date<$('bookingDate').min){showBooking(tr('past'),true);return}
+const booking={id:makeId(),name:String(fields.get('name')||'').trim(),phone,wilaya:String(fields.get('wilaya')||''),service:String(fields.get('service')||''),date,time:String(fields.get('time')||''),details:String(fields.get('details')||'').trim()};
+bookingBtn.disabled=true;bookingBtn.textContent=tr('sending');showBooking('');try{const r=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'booking',booking})});const data=await r.json();if(!r.ok||!data.ok)throw new Error(data.error||'Request rejected');showBooking(tr('sent')+(data.reference||booking.id));bookingForm.reset()}catch(err){console.error('Booking request failed:',err);showBooking(tr('failed')+(err.message||''),true)}finally{bookingBtn.disabled=false;bookingBtn.textContent=tr('request')}});
+const chatForm=$('chatForm'),input=$('chatInput'),send=$('sendChat'),messages=$('messages');let history=[];
+function bubble(text,role){const el=document.createElement('div');el.className='bubble '+(role==='user'?'user':'bot');el.textContent=text;messages.append(el);messages.scrollTop=messages.scrollHeight;return el}
+chatForm.addEventListener('submit',async e=>{e.preventDefault();const message=input.value.trim();if(!message)return;const prior=history.slice(-8);bubble(message,'user');input.value='';send.disabled=true;send.textContent=tr('asking');const pending=bubble('…','model');try{const r=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({type:'chat',message,history:prior})});const data=await r.json();if(!r.ok||!data.ok||!data.reply)throw new Error(data.error||'AI request failed');pending.textContent=data.reply;history.push({role:'user',text:message},{role:'model',text:data.reply});history=history.slice(-8)}catch(err){console.error('AI request failed:',err);pending.textContent=tr('chatError')}finally{send.disabled=false;send.textContent=tr('send');messages.scrollTop=messages.scrollHeight;input.focus()}});
